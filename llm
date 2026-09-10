@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+# llm — ローカルLLM (llama-server) をターミナルから気軽に使うための CLI。
+# 依存は Python 標準ライブラリのみ。サーバーは serve.sh (OpenAI 互換 API) を想定。
+#
+# 使い方を忘れたら:  llm cheat
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+BASE = os.environ.get("LLM_URL", "http://127.0.0.1:8080")
+REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+
+BOLD, DIM, CYAN, GREEN, YELLOW, RESET = "\033[1m", "\033[2m", "\033[36m", "\033[32m", "\033[33m", "\033[0m"
+
+CHEAT = f"""
+{BOLD}llm — ローカルLLM チートシート{RESET}
+
+{CYAN}■ まず{RESET}
+  llm up                     サーバー起動 (未起動なら)。状態確認は llm status
+  llm cheat                  これを表示
+
+{CYAN}■ 一発系 (stdin パイプ対応){RESET}
+  llm ask "質問"             なんでも質問
+  cat file | llm ask "要約して"
+  llm sum file.txt           ファイル/stdin を3行で要約
+  llm tr "text"              日⇔英 翻訳 (自動判定)
+  llm fix                    stdin の文章を校正
+  llm cmd "やりたいこと"     シェルコマンドを提案 (コマンドのみ出力)
+
+{CYAN}■ 対話{RESET}
+  llm chat                   会話モード (履歴保持 / exit で終了)
+
+{CYAN}■ 運用{RESET}
+  llm status                 ヘルスチェック + ロード中モデル表示
+  llm models                 ロード中モデル一覧
+  ./pull-model.sh --tags ai/qwen3     取得できるタグ一覧
+  ./pull-model.sh ai/smollm2 1.7b-q4_K_M   別モデル取得
+  ./serve.sh ~/models/別モデル.gguf         別モデルで起動し直し
+
+{CYAN}■ 環境が消えたら (コンテナ再作成後){RESET}
+  ./setup.sh && llm up       これだけで全復旧
+
+{DIM}環境変数: LLM_URL (default http://127.0.0.1:8080){RESET}
+"""
+
+PRESETS = {
+    "sum": "以下のテキストを日本語で3行以内に要約してください。要約のみ出力すること。",
+    "tr": "以下のテキストが日本語なら英語に、それ以外なら日本語に翻訳してください。訳文のみ出力すること。",
+    "fix": "以下の文章を意味を変えずに校正してください。修正後の全文のみ出力すること。",
+    "cmd": "ユーザーのやりたいことを実現する Linux シェルコマンドを1つ提案してください。コマンドのみを1行で出力すること。説明・コードブロック記号は不要。",
+}
+
+
+def die(msg):
+    print(f"{YELLOW}{msg}{RESET}", file=sys.stderr)
+    sys.exit(1)
+
+
+def api(path, payload=None, timeout=600):
+    req = urllib.request.Request(
+        BASE + path,
+        data=json.dumps(payload).encode() if payload is not None else None,
+        headers={"Content-Type": "application/json"},
+    )
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def server_alive():
+    try:
+        with api("/health", timeout=3) as r:
+            return json.load(r).get("status") == "ok"
+    except Exception:
+        return False
+
+
+def require_server():
+    if not server_alive():
+        die(f"サーバーが起動していません ({BASE})。`llm up` で起動してください。")
+
+
+def stream_chat(messages, max_tokens=None):
+    """ストリーミングで応答を表示しつつ、全文を返す。"""
+    payload = {"messages": messages, "stream": True}
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    full = []
+    with api("/v1/chat/completions", payload) as r:
+        for raw in r:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data: "):
+                continue
+            data = line[6:]
+            if data == "[DONE]":
+                break
+            delta = json.loads(data)["choices"][0].get("delta", {})
+            piece = delta.get("content") or ""
+            if piece:
+                full.append(piece)
+                print(piece, end="", flush=True)
+    print()
+    return "".join(full)
+
+
+def read_stdin_if_piped():
+    if not sys.stdin.isatty():
+        return sys.stdin.read()
+    return None
+
+
+def one_shot(system, user_text):
+    require_server()
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user_text})
+    stream_chat(messages)
+
+
+def cmd_ask(args):
+    piped = read_stdin_if_piped()
+    prompt = " ".join(args).strip()
+    if piped and prompt:
+        text = f"{prompt}\n\n---\n{piped}"
+    elif piped:
+        text = piped
+    elif prompt:
+        text = prompt
+    else:
+        die('使い方: llm ask "質問"  (または cat file | llm ask "要約して")')
+    one_shot(None, text)
+
+
+def preset_input(args, usage):
+    piped = read_stdin_if_piped()
+    joined = " ".join(args).strip()
+    if joined and os.path.isfile(joined):
+        return open(joined, encoding="utf-8", errors="replace").read()
+    if joined:
+        return joined
+    if piped:
+        return piped
+    die(usage)
+
+
+def cmd_preset(name, args):
+    usage = {
+        "sum": "使い方: llm sum <file>  (または cat file | llm sum)",
+        "tr": '使い方: llm tr "テキスト"  (または cat file | llm tr)',
+        "fix": "使い方: echo 文章 | llm fix  (または llm fix <file>)",
+        "cmd": '使い方: llm cmd "やりたいこと"',
+    }[name]
+    one_shot(PRESETS[name], preset_input(args, usage))
+
+
+def cmd_chat(_args):
+    require_server()
+    print(f"{DIM}会話モード (exit / Ctrl-D で終了){RESET}")
+    messages = []
+    while True:
+        try:
+            user = input(f"{GREEN}you>{RESET} ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if user in ("exit", "quit", "/exit"):
+            break
+        if not user:
+            continue
+        messages.append({"role": "user", "content": user})
+        print(f"{CYAN}llm>{RESET} ", end="", flush=True)
+        reply = stream_chat(messages)
+        messages.append({"role": "assistant", "content": reply})
+
+
+def loaded_models():
+    with api("/v1/models", timeout=5) as r:
+        return [m.get("name", "?") for m in json.load(r).get("models", [])]
+
+
+def cmd_status(_args):
+    if server_alive():
+        print(f"{GREEN}ok{RESET} {BASE}")
+        for m in loaded_models():
+            print(f"  model: {os.path.basename(m)}")
+    else:
+        print(f"{YELLOW}down{RESET} {BASE}  (`llm up` で起動)")
+        sys.exit(1)
+
+
+def cmd_models(_args):
+    require_server()
+    for m in loaded_models():
+        print(os.path.basename(m))
+
+
+def cmd_up(_args):
+    if server_alive():
+        print(f"{GREEN}already running{RESET} {BASE}")
+        return
+    serve = os.path.join(REPO_DIR, "serve.sh")
+    if not os.access(serve, os.X_OK):
+        die(f"{serve} が見つかりません")
+    log = os.path.expanduser("~/llama-server.log")
+    with open(log, "ab") as lf:
+        subprocess.Popen(
+            [serve], stdout=lf, stderr=lf,
+            stdin=subprocess.DEVNULL, start_new_session=True,
+        )
+    print(f"starting llama-server ... (log: {log})")
+    for _ in range(60):
+        time.sleep(2)
+        if server_alive():
+            print(f"{GREEN}ok{RESET} {BASE}")
+            return
+    die(f"起動を確認できませんでした。ログを確認: tail {log}")
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help", "cheat"):
+        print(CHEAT)
+        return
+    cmd, args = sys.argv[1], sys.argv[2:]
+    handlers = {
+        "ask": cmd_ask,
+        "chat": cmd_chat,
+        "status": cmd_status,
+        "models": cmd_models,
+        "up": cmd_up,
+    }
+    try:
+        if cmd in PRESETS:
+            cmd_preset(cmd, args)
+        elif cmd in handlers:
+            handlers[cmd](args)
+        else:
+            die(f"不明なコマンド: {cmd}  (`llm cheat` で使い方を表示)")
+    except urllib.error.URLError as e:
+        die(f"API エラー: {e}")
+    except BrokenPipeError:
+        pass
+
+
+if __name__ == "__main__":
+    main()

@@ -33,13 +33,32 @@ Claude Code のリモート実行環境（egress 制限つきコンテナ）上�
 ./setup.sh
 
 # 2. サーバー起動 (OpenAI 互換 API: http://127.0.0.1:8080/v1, Web UI: http://127.0.0.1:8080)
-./serve.sh
+llm up          # またはフォアグラウンドで ./serve.sh
 
 # 3. 動作確認
 curl -sS http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"messages":[{"role":"user","content":"hello"}],"max_tokens":50}'
 ```
+
+## llm コマンド — ターミナルから気軽に使う
+
+`setup.sh` が `~/.local/bin/llm` にシンボリックリンクを張る。**使い方を忘れたら `llm cheat`**。
+
+```bash
+llm up                          # サーバー起動 (未起動なら)
+llm ask "質問"                  # なんでも質問
+cat report.txt | llm ask "要約して"   # パイプで流し込み
+llm sum file.txt                # 3行要約
+llm tr "hello world"            # 日⇔英 翻訳 (自動判定)
+git diff | llm fix              # stdin の文章校正
+llm cmd "7日より古いログを削除"  # シェルコマンド提案
+llm chat                        # 会話モード (履歴保持)
+llm status                      # ヘルスチェック + ロード中モデル
+```
+
+依存は Python 標準ライブラリのみ。接続先は環境変数 `LLM_URL` で変更可能
+(default: `http://127.0.0.1:8080`)。
 
 ## モデルの追加取得
 

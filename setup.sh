@@ -48,5 +48,13 @@ if [[ "${1:-}" != "--no-model" ]]; then
   "$SCRIPT_DIR/pull-model.sh" "$DEFAULT_MODEL_REPO" "$DEFAULT_MODEL_TAG"
 fi
 
+# llm CLI を PATH に登録
+mkdir -p "$HOME/.local/bin"
+ln -sf "$SCRIPT_DIR/llm" "$HOME/.local/bin/llm"
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) echo "NOTE: ~/.local/bin が PATH にありません。export PATH=\"\$HOME/.local/bin:\$PATH\" を追加してください" ;;
+esac
+
 echo
-echo "done. 起動: $SCRIPT_DIR/serve.sh"
+echo "done. 起動: llm up  /  使い方: llm cheat"
