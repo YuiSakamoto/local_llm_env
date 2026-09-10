@@ -60,6 +60,10 @@ llm status                      # ヘルスチェック + ロード中モデル
 依存は Python 標準ライブラリのみ。接続先は環境変数 `LLM_URL` で変更可能
 (default: `http://127.0.0.1:8080`)。
 
+普段使いのマシンでは [dotfiles2](https://github.com/YuiSakamoto/dotfiles2) の
+`bin/llm` ランチャーが `~/.local/bin/llm` に張られ、ghq 配下などから本リポジトリを
+自動探索して実体に委譲する（`setup.sh` は既存の llm リンクを上書きしない）。
+
 ## モデルの追加取得
 
 Docker Hub の `ai/` 名前空間にあるモデルなら何でも取得できる。

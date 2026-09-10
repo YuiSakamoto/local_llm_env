@@ -48,9 +48,12 @@ if [[ "${1:-}" != "--no-model" ]]; then
   "$SCRIPT_DIR/pull-model.sh" "$DEFAULT_MODEL_REPO" "$DEFAULT_MODEL_TAG"
 fi
 
-# llm CLI を PATH に登録
+# llm CLI を PATH に登録。dotfiles2 が bin/llm ランチャーを ~/.local/bin に
+# 張っている環境ではそちらを正とするため、既存のものは上書きしない
 mkdir -p "$HOME/.local/bin"
-ln -sf "$SCRIPT_DIR/llm" "$HOME/.local/bin/llm"
+if [[ ! -e "$HOME/.local/bin/llm" && ! -L "$HOME/.local/bin/llm" ]]; then
+  ln -s "$SCRIPT_DIR/llm" "$HOME/.local/bin/llm"
+fi
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) echo "NOTE: ~/.local/bin が PATH にありません。export PATH=\"\$HOME/.local/bin:\$PATH\" を追加してください" ;;
