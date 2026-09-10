@@ -12,7 +12,9 @@ import urllib.error
 import urllib.request
 
 BASE = os.environ.get("LLM_URL", "http://127.0.0.1:8080")
-REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+# symlink (~/.local/bin/llm) 経由の起動でも serve.sh をリポジトリから見つけられる
+# よう、リンクを解決した実体の場所を基準にする
+REPO_DIR = os.path.dirname(os.path.realpath(__file__))
 
 BOLD, DIM, CYAN, GREEN, YELLOW, RESET = "\033[1m", "\033[2m", "\033[36m", "\033[32m", "\033[33m", "\033[0m"
 
