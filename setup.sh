@@ -17,6 +17,31 @@ LLAMA_CPP_HOME="${LLAMA_CPP_HOME:-$HOME/.local/llama.cpp}"
 DEFAULT_MODEL_REPO="${LOCAL_LLM_MODEL_REPO:-ai/qwen3}"
 DEFAULT_MODEL_TAG="${LOCAL_LLM_MODEL_TAG:-4b-instruct-2507-q4_K_M}"
 
+# GitHub Releases のビルド済みバイナリは ubuntu-x64 のみなので、
+# macOS では Homebrew の llama.cpp を使う (serve.sh が PATH から拾う)
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if command -v llama-server >/dev/null 2>&1; then
+    echo "==> llama-server found: $(command -v llama-server)"
+  elif command -v brew >/dev/null 2>&1; then
+    echo "==> installing llama.cpp via Homebrew"
+    brew install llama.cpp
+  else
+    echo "macOS では brew install llama.cpp でランタイムを導入してください" >&2
+    exit 1
+  fi
+  if [[ "${1:-}" != "--no-model" ]]; then
+    echo "==> pulling default model $DEFAULT_MODEL_REPO:$DEFAULT_MODEL_TAG"
+    "$SCRIPT_DIR/pull-model.sh" "$DEFAULT_MODEL_REPO" "$DEFAULT_MODEL_TAG"
+  fi
+  mkdir -p "$HOME/.local/bin"
+  if [[ ! -e "$HOME/.local/bin/llm" && ! -L "$HOME/.local/bin/llm" ]]; then
+    ln -s "$SCRIPT_DIR/llm" "$HOME/.local/bin/llm"
+  fi
+  echo
+  echo "done. 起動: llm up  /  使い方: llm cheat"
+  exit 0
+fi
+
 echo "==> resolving latest llama.cpp release tag"
 tags=$(git ls-remote --tags https://github.com/ggml-org/llama.cpp \
   | awk -F/ '{print $3}' | grep -E '^b[0-9]+$' | sort -V | tail -10 | tac)

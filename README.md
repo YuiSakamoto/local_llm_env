@@ -64,6 +64,22 @@ llm status                      # ヘルスチェック + ロード中モデル
 `bin/llm` ランチャーが `~/.local/bin/llm` に張られ、ghq 配下などから本リポジトリを
 自動探索して実体に委譲する（`setup.sh` は既存の llm リンクを上書きしない）。
 
+## macOS (手元マシン) で使う
+
+ランタイムだけ Homebrew になる以外は同じ手順。`setup.sh` が OS を判定して
+`brew install llama.cpp` を使い、`serve.sh` は PATH の `llama-server` に
+フォールバックする。Apple Silicon なら Metal で動くため生成速度はコンテナより速い。
+
+```bash
+ghq get YuiSakamoto/local_llm_env
+cd "$(ghq root)/github.com/YuiSakamoto/local_llm_env"
+./setup.sh      # brew install llama.cpp + モデル取得
+llm up
+```
+
+`llm` コマンド自体は [dotfiles2](https://github.com/YuiSakamoto/dotfiles2) の
+`bin/llm` ランチャー経由で入る (`./setup.sh link`)。
+
 ## モデルの追加取得
 
 Docker Hub の `ai/` 名前空間にあるモデルなら何でも取得できる。
