@@ -16,10 +16,19 @@ MODELS_DIR="${LOCAL_LLM_MODELS_DIR:-$HOME/models}"
 MODEL="${1:-$MODELS_DIR/Qwen3-4B-Instruct-2507-Q4_K_M.gguf}"
 PORT="${PORT:-8080}"
 CTX="${CTX:-16384}"
-THREADS="${THREADS:-$(nproc)}"
+# nproc は GNU coreutils。macOS では sysctl で代替する
+THREADS="${THREADS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}"
 
+# setup.sh が置いたバイナリを優先し、無ければ PATH のもの
+# (macOS: brew install llama.cpp) にフォールバックする
 BIN="$LLAMA_CPP_HOME/current/llama-server"
-[[ -x "$BIN" ]] || { echo "llama-server not found at $BIN — run setup.sh first" >&2; exit 1; }
+if [[ ! -x "$BIN" ]]; then
+  BIN="$(command -v llama-server || true)"
+fi
+[[ -n "$BIN" && -x "$BIN" ]] || {
+  echo "llama-server not found — Linux: setup.sh を実行 / macOS: brew install llama.cpp" >&2
+  exit 1
+}
 [[ -f "$MODEL" ]] || { echo "model not found: $MODEL — run pull-model.sh first" >&2; exit 1; }
 
 echo "starting llama-server: model=$MODEL port=$PORT ctx=$CTX threads=$THREADS"

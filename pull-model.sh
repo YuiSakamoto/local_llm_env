@@ -15,6 +15,19 @@ MODELS_DIR_DEFAULT="${LOCAL_LLM_MODELS_DIR:-$HOME/models}"
 # 試行順: mirror.gcr.io → registry-1.docker.io (後者は blob CDN が通る環境向け)
 REGISTRIES=("mirror.gcr.io" "registry-1.docker.io")
 
+# stat -c / sha256sum は GNU 前提で macOS (BSD) に無いため、可搬な形で包む
+file_size() {
+  wc -c < "$1" | tr -d '[:space:]'
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
 get_token() {
   local registry=$1 repo=$2
   case "$registry" in
@@ -76,7 +89,7 @@ for l in m.get("layers", []):
   ok=1
   while read -r digest filepath size; do
     dest="$outdir/$filepath"
-    if [[ -f "$dest" ]] && [[ "$(stat -c%s "$dest")" == "$size" ]]; then
+    if [[ -f "$dest" ]] && [[ "$(file_size "$dest")" == "$size" ]]; then
       echo "  already downloaded: $dest"
       continue
     fi
@@ -88,7 +101,7 @@ for l in m.get("layers", []):
       ok=0; break
     fi
     echo "  verifying sha256 ..."
-    actual=$(sha256sum "$dest" | awk '{print $1}')
+    actual=$(sha256_of "$dest")
     if [[ "sha256:$actual" != "$digest" ]]; then
       echo "  checksum mismatch: $dest" >&2
       rm -f "$dest"; ok=0; break
