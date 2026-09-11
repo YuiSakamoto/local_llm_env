@@ -46,7 +46,8 @@ CHEAT = f"""
 {CYAN}■ 環境が消えたら (コンテナ再作成後){RESET}
   ./setup.sh && llm up       これだけで全復旧
 
-{DIM}環境変数: LLM_URL (default http://127.0.0.1:8080){RESET}
+{DIM}環境変数: LLM_URL (default http://127.0.0.1:8080)
+活用レシピ集 (シェル組込み/バッチ/cron/aider/tool calling): docs/RECIPES.md{RESET}
 """
 
 PRESETS = {
@@ -213,7 +214,9 @@ def cmd_up(_args):
             stdin=subprocess.DEVNULL, start_new_session=True,
         )
     print(f"starting llama-server ... (log: {log})")
-    for _ in range(60):
+    # コンテナ再起動直後などディスクキャッシュが冷えているとモデルロードに
+    # 3〜4分かかることがあるため、待ち時間は5分とる
+    for _ in range(150):
         time.sleep(2)
         if server_alive():
             print(f"{GREEN}ok{RESET} {BASE}")
