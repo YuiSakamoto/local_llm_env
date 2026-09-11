@@ -11,7 +11,11 @@ import time
 import urllib.error
 import urllib.request
 
-BASE = os.environ.get("LLM_URL", "http://127.0.0.1:8080")
+DEFAULT_BASE = "http://127.0.0.1:8080"
+BASE = os.environ.get("LLM_URL", DEFAULT_BASE)
+# ollama のように 1 サーバーで複数モデルを持つバックエンドは model 指定が必須。
+# llama-server は単一モデルを載せる作りなので未設定のままでよい。
+MODEL = os.environ.get("LLM_MODEL")
 # symlink (~/.local/bin/llm) 経由の起動でも serve.sh をリポジトリから見つけられる
 # よう、リンクを解決した実体の場所を基準にする
 REPO_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -72,9 +76,16 @@ def api(path, payload=None, timeout=600):
 
 
 def server_alive():
+    # /health は llama-server 固有。ollama のように持たないバックエンドがあるので、
+    # 引けなければ OpenAI 互換の /v1/models で代用する。
     try:
         with api("/health", timeout=3) as r:
             return json.load(r).get("status") == "ok"
+    except Exception:
+        pass
+    try:
+        with api("/v1/models", timeout=3) as r:
+            return r.status == 200
     except Exception:
         return False
 
@@ -87,6 +98,8 @@ def require_server():
 def stream_chat(messages, max_tokens=None):
     """ストリーミングで応答を表示しつつ、全文を返す。"""
     payload = {"messages": messages, "stream": True}
+    if MODEL:
+        payload["model"] = MODEL
     if max_tokens:
         payload["max_tokens"] = max_tokens
     full = []
@@ -180,7 +193,12 @@ def cmd_chat(_args):
 
 def loaded_models():
     with api("/v1/models", timeout=5) as r:
-        return [m.get("name", "?") for m in json.load(r).get("models", [])]
+        body = json.load(r)
+    # llama-server は {"models":[{"name":...}]}、OpenAI 互換 (ollama) は
+    # {"data":[{"id":...}]} を返す。どちらでも読めるようにする。
+    if "data" in body:
+        return [m.get("id", "?") for m in body["data"]]
+    return [m.get("name", "?") for m in body.get("models", [])]
 
 
 def cmd_status(_args):
@@ -203,6 +221,11 @@ def cmd_up(_args):
     if server_alive():
         print(f"{GREEN}already running{RESET} {BASE}")
         return
+    # 外部のバックエンド (ollama 等) を指しているときに llama-server を立てても
+    # 意味がないので、そちらを起動してもらう
+    if BASE != DEFAULT_BASE or MODEL:
+        die(f"{BASE} に繋がりません。バックエンド側を起動してください"
+            " (ollama なら Ollama.app を起動、または `ollama serve`)。")
     serve = os.path.join(REPO_DIR, "serve.sh")
     if not os.access(serve, os.X_OK):
         die(f"{serve} が見つかりません")
